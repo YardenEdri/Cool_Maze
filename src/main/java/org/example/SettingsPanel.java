@@ -1,10 +1,12 @@
 package org.example;
 
+import javax.swing.BorderFactory;
 import javax.swing.JButton;
 import javax.swing.JFrame;
 import javax.swing.JLabel;
 import javax.swing.JOptionPane;
 import javax.swing.JPanel;
+import javax.swing.JScrollPane;
 import javax.swing.JTextField;
 import javax.swing.SwingUtilities;
 import java.awt.Color;
@@ -29,6 +31,11 @@ public class SettingsPanel extends JPanel {
     static final int MAX_SIZE = 100;
     static final int DEFAULT_SIZE = 30;
 
+    // Layout for the color swatches drawn next to the color labels (Step 4
+    // follow-up): a small filled square instead of printing the hex code.
+    private static final int COLOR_SQUARE_SIZE = 14;
+    private static final int COLOR_SQUARE_X = 150;
+
     private final JFrame frame;
 
     // The most recently fetched config. Passed on to the MazePanel in Step 6.
@@ -45,6 +52,12 @@ public class SettingsPanel extends JPanel {
     private final JLabel gridColorLabel = new JLabel();
     private final JLabel animationDelayLabel = new JLabel();
     private final JLabel statusLabel = new JLabel();
+
+    // The color squares currently shown next to wallCellColorLabel /
+    // pathColorLabel / gridColorLabel. Null until the first config loads.
+    private JPanel wallCellColorSquare;
+    private JPanel pathColorSquare;
+    private JPanel gridColorSquare;
 
     private final JTextField widthField = new JTextField("30");
     private final JTextField heightField = new JTextField("30");
@@ -71,6 +84,13 @@ public class SettingsPanel extends JPanel {
         add(drawGridLabel);
         add(gridColorLabel);
         add(animationDelayLabel);
+
+        // These three show a color swatch (added/updated in
+        // updateColorSquares) instead of a hex code, so their own text is
+        // just the field name and never changes again.
+        wallCellColorLabel.setText("wallCellColor:");
+        pathColorLabel.setText("pathColor:");
+        gridColorLabel.setText("gridColor:");
 
         JLabel sizeTitle = new JLabel("Maze size");
         sizeTitle.setFont(sizeTitle.getFont().deriveFont(Font.BOLD, 14f));
@@ -127,11 +147,52 @@ public class SettingsPanel extends JPanel {
     }
 
     private void applyConfigToLabels(RenderConfig cfg) {
-        wallCellColorLabel.setText("wallCellColor: " + cfg.wallCellColor);
-        pathColorLabel.setText("pathColor: " + cfg.pathColor);
         drawGridLabel.setText("drawGrid: " + cfg.drawGrid);
-        gridColorLabel.setText("gridColor: " + cfg.gridColor);
         animationDelayLabel.setText("animationDelayMs: " + cfg.animationDelayMs);
+        updateColorSquares(cfg);
+    }
+
+    /**
+     * Updates the wallCellColor / pathColor / gridColor swatches shown next
+     * to their labels. Split out of applyConfigToLabels so each piece stays
+     * simple: this one only deals with the three colors that come back from
+     * the server.
+     */
+    private void updateColorSquares(RenderConfig cfg) {
+        wallCellColorSquare = placeColorSquare(wallCellColorSquare,
+                cfg.wallCellColorAsColor(), COLOR_SQUARE_X, 40);
+        pathColorSquare = placeColorSquare(pathColorSquare,
+                cfg.pathColorAsColor(), COLOR_SQUARE_X, 62);
+        gridColorSquare = placeColorSquare(gridColorSquare,
+                cfg.gridColorAsColor(), COLOR_SQUARE_X, 106);
+        revalidate();
+        repaint();
+    }
+
+    /**
+     * Removes the previously shown square (if any) and adds a freshly built
+     * one at the given position, so repeated Refresh Config clicks never
+     * leave a stale square sitting behind the new one.
+     */
+    private JPanel placeColorSquare(JPanel previousSquare, Color color, int x, int y) {
+        if (previousSquare != null) {
+            remove(previousSquare);
+        }
+        JPanel square = createColorSquare(color);
+        square.setBounds(x, y, COLOR_SQUARE_SIZE, COLOR_SQUARE_SIZE);
+        add(square);
+        return square;
+    }
+
+    /**
+     * Converts a color into a small filled square component — this is what
+     * gets shown instead of printing the color's hex code as plain text.
+     */
+    private JPanel createColorSquare(Color color) {
+        JPanel square = new JPanel();
+        square.setBackground(color);
+        square.setBorder(BorderFactory.createLineBorder(Color.DARK_GRAY));
+        return square;
     }
 
     private void setBusy(boolean busy, String status) {
@@ -168,10 +229,20 @@ public class SettingsPanel extends JPanel {
                 MazeData maze = new MazeData(image, w, h);
                 SwingUtilities.invokeLater(() -> {
                     MazePanel mazePanel = new MazePanel(frame, cfg, maze);
+                    JScrollPane scrollPane = new JScrollPane(mazePanel);
                     frame.getContentPane().removeAll();
-                    frame.getContentPane().add(mazePanel);
-                    // Resize the window so the whole maze is visible.
+                    frame.getContentPane().add(scrollPane);
+                    // Resize the window so the whole maze is visible, but never
+                    // bigger than the screen: for large mazes (up to the allowed
+                    // 100x100) the scroll pane lets the user reach every cell
+                    // instead of the window running off the edges of the display.
                     frame.pack();
+                    java.awt.Rectangle screenBounds =
+                            java.awt.GraphicsEnvironment.getLocalGraphicsEnvironment()
+                                    .getMaximumWindowBounds();
+                    int width = Math.min(frame.getWidth(), screenBounds.width);
+                    int height = Math.min(frame.getHeight(), screenBounds.height);
+                    frame.setSize(width, height);
                     frame.setLocationRelativeTo(null);
                     frame.revalidate();
                     frame.repaint();
@@ -240,19 +311,13 @@ public class SettingsPanel extends JPanel {
      * Run with the argument "step5" instead to run the Step 5 validation
      * self-test on the console (no window).
      */
-    public static void main(String[] args) {
+    public static void main(String[] args) throws Exception {
         if (args.length > 0 && args[0].equals("step5")) {
             runStep5SelfTest();
             return;
         }
-        SwingUtilities.invokeLater(() -> {
-            JFrame frame = new JFrame("Maze Game");
-            frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
-            frame.setSize(520, 400);
-            frame.setLocationRelativeTo(null);
-            frame.add(new SettingsPanel(frame));
-            frame.setVisible(true);
-        });
+        // The settings screen is what the app opens on, so this is just the app.
+        Main.main(args);
     }
 
     /**
